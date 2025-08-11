@@ -1,6 +1,6 @@
 const nextConfig = {
   experimental: {
-    serverActions: true,
+    serverActions: {}, // đổi true thành {}
   },
   async headers() {
     return [
