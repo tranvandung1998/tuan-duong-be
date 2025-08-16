@@ -1,13 +1,10 @@
-// app/api/product-details/route.ts
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 
-// GET để test route
 export async function GET() {
   return NextResponse.json({ message: "API product-details working" });
 }
 
-// POST để tạo product detail
 export async function POST(req: Request) {
   try {
     const { product_name, detail, images } = await req.json();
