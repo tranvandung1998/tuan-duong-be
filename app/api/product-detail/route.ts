@@ -1,13 +1,17 @@
+// app/api/product-details/route.ts
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 
+// Test GET
 export async function GET() {
   return NextResponse.json({ message: "API product-details working" });
 }
 
+// POST
 export async function POST(req: Request) {
   try {
-    const { product_name, detail, images } = await req.json();
+    const body = await req.json();
+    const { product_name, detail, images } = body;
 
     if (!product_name || !detail) {
       return NextResponse.json(
@@ -16,6 +20,7 @@ export async function POST(req: Request) {
       );
     }
 
+    // Lấy product_id theo tên sản phẩm
     const prodRes = await pool.query(
       "SELECT id FROM products WHERE name = $1",
       [product_name]
@@ -30,9 +35,10 @@ export async function POST(req: Request) {
 
     const product_id = prodRes.rows[0].id;
 
+    // Nếu cột images là JSON/Text[]
     await pool.query(
       "INSERT INTO product_details(product_id, detail, images) VALUES($1, $2, $3)",
-      [product_id, detail, images]
+      [product_id, detail, JSON.stringify(images)]
     );
 
     return NextResponse.json({ message: "Product detail created" });
