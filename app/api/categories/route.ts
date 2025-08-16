@@ -1,4 +1,4 @@
-import pool from '@/lib/supabaseClient';
+import { supabase } from '@/lib/supabaseClient';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*', // hoặc domain cụ thể
@@ -12,18 +12,49 @@ export async function OPTIONS() {
 }
 
 export async function GET() {
-  const result = await pool.query('SELECT * FROM categories');
-  return new Response(JSON.stringify(result.rows), {
+  const { data, error } = await supabase.from('categories').select('*');
+
+  if (error) {
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  return new Response(JSON.stringify(data), {
     status: 200,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 }
 
 export async function POST(req: Request) {
-  const { name } = await req.json();
-  await pool.query('INSERT INTO categories(name) VALUES($1)', [name]);
-  return new Response(JSON.stringify({ message: 'Category created' }), {
-    status: 201,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
+  try {
+    const { name } = await req.json();
+
+    if (!name || typeof name !== 'string') {
+      return new Response(JSON.stringify({ error: 'Invalid name' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const { error } = await supabase.from('categories').insert([{ name }]);
+
+    if (error) {
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    return new Response(JSON.stringify({ message: 'Category created' }), {
+      status: 201,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  } catch (err: any) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
 }
