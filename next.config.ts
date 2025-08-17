@@ -6,7 +6,7 @@ export async function OPTIONS() {
   return new Response(null, {
     status: 204,
     headers: {
-      'Access-Control-Allow-Origin': allowedOrigins[0],
+      'Access-Control-Allow-Origin': allowedOrigins[0], // hoặc '*'
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     },
@@ -14,26 +14,23 @@ export async function OPTIONS() {
 }
 
 export async function GET() {
-  const { data, error } = await supabase.from('categories').select('*');
-  if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
-
-  return new Response(JSON.stringify(data), {
+  const result = await pool.query('SELECT * FROM categories');
+  return new Response(JSON.stringify(result.rows), {
     headers: {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': allowedOrigins[0],
+      'Access-Control-Allow-Origin': allowedOrigins[0], // hoặc '*'
     },
   });
 }
 
 export async function POST(req: Request) {
   const { name } = await req.json();
-  const { error } = await supabase.from('categories').insert([{ name }]);
-  if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+  await pool.query('INSERT INTO categories(name) VALUES($1)', [name]);
 
   return new Response(JSON.stringify({ message: 'Category created' }), {
     headers: {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': allowedOrigins[0],
+      'Access-Control-Allow-Origin': allowedOrigins[0], // hoặc '*'
     },
   });
 }
