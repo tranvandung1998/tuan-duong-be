@@ -1,5 +1,4 @@
-import { supabase } from "@/lib/supabaseClient";
-
+import pool from '@/lib/db';
 
 const allowedOrigins = ['http://localhost:3000', 'https://app-fe-tuan-duong.vercel.app/'];
 

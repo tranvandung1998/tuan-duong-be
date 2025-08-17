@@ -1,11 +1,13 @@
 // app/api/product-details/route.ts
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabaseClient";
+import pool from "@/lib/db";
 
+// Test GET
 export async function GET() {
   return NextResponse.json({ message: "API product-details working" });
 }
 
+// POST: Thêm chi tiết sản phẩm + slide ảnh
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -26,23 +28,25 @@ export async function POST(req: Request) {
     }
 
     // Lấy product_id theo tên sản phẩm
-    const { data: product, error: prodError } = await supabase
-      .from("products")
-      .select("id")
-      .eq("name", product_name)
-      .maybeSingle();
+    const prodRes = await pool.query(
+      "SELECT id FROM products WHERE name = $1",
+      [product_name]
+    );
 
-    if (prodError) throw prodError;
-    if (!product) {
-      return NextResponse.json({ error: "Product not found" }, { status: 404 });
+    if (prodRes.rowCount === 0) {
+      return NextResponse.json(
+        { error: "Product not found" },
+        { status: 404 }
+      );
     }
 
-    // Thêm chi tiết sản phẩm
-    const { error: insertError } = await supabase
-      .from("product_details")
-      .insert([{ product_id: product.id, detail, images }]);
+    const product_id = prodRes.rows[0].id;
 
-    if (insertError) throw insertError;
+    // Thêm chi tiết sản phẩm
+    await pool.query(
+      "INSERT INTO product_details(product_id, detail, images) VALUES($1, $2, $3)",
+      [product_id, detail, images] // images là TEXT[]
+    );
 
     return NextResponse.json({ message: "Product detail created successfully" });
   } catch (err: any) {

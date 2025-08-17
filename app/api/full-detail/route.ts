@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabaseClient";
+import pool from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -14,32 +14,33 @@ export async function GET(req: Request) {
       });
     }
 
-    // Lấy sản phẩm theo tên
-    const { data: products, error: prodError } = await supabase
-      .from("products")
-      .select("*")
-      .eq("name", productName)
-      .limit(1)
-      .maybeSingle(); // trả về null nếu không tìm thấy
+    // Lấy sản phẩm
+    const prodRes = await pool.query("SELECT * FROM products WHERE name = $1", [
+      productName,
+    ]);
 
-    if (prodError) throw prodError;
-    if (!products) {
+    if (prodRes.rowCount === 0) {
       return new Response(JSON.stringify({ error: "Product not found" }), {
         status: 404,
         headers: { "Content-Type": "application/json" },
       });
     }
 
-    // Lấy chi tiết + images từ product_details
-    const { data: details, error: detailError } = await supabase
-      .from("product_details")
-      .select("detail, images")
-      .eq("product_id", products.id);
+    const product = prodRes.rows[0];
 
-    if (detailError) throw detailError;
+    // Lấy chi tiết + images từ product_details
+    const detailRes = await pool.query(
+      "SELECT detail, images FROM product_details WHERE product_id = $1",
+      [product.id]
+    );
+
+    const details = detailRes.rows.map((row) => ({
+      detail: row.detail,
+      images: row.images || [],
+    }));
 
     return new Response(
-      JSON.stringify({ ...products, details: details || [] }),
+      JSON.stringify({ ...product, details }),
       {
         status: 200,
         headers: { "Content-Type": "application/json" },

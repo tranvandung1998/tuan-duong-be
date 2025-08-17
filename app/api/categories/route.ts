@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabaseClient';
+import pool from '@/lib/db';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*', // hoặc domain cụ thể

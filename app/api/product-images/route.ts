@@ -1,7 +1,6 @@
-// app/api/product-images/route.ts
 export const runtime = 'nodejs';
 
-import { supabase } from '@/lib/supabaseClient';
+import pool from '@/lib/db';
 
 export async function POST(req: Request) {
   try {
@@ -10,43 +9,25 @@ export async function POST(req: Request) {
     const { product_name, image_url } = await req.json();
 
     if (!product_name || !image_url) {
-      return new Response(
-        JSON.stringify({ error: 'Missing product_name or image_url' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      );
+      return Response.json({ error: 'Missing product_name or image_url' }, { status: 400 });
     }
 
-    // Lấy product_id theo tên
-    const { data: product, error: prodError } = await supabase
-      .from('products')
-      .select('id')
-      .eq('name', product_name)
-      .maybeSingle();
-
-    if (prodError) throw prodError;
-    if (!product) {
-      return new Response(
-        JSON.stringify({ error: 'Product not found' }),
-        { status: 404, headers: { 'Content-Type': 'application/json' } }
-      );
+    const prodRes = await pool.query('SELECT id FROM products WHERE name = $1', [product_name]);
+    if (prodRes.rowCount === 0) {
+      return Response.json({ error: 'Product not found' }, { status: 404 });
     }
 
-    // Thêm ảnh sản phẩm
-    const { error: insertError } = await supabase
-      .from('product_images')
-      .insert([{ product_id: product.id, url: image_url }]);
+    const product_id = prodRes.rows[0].id;
 
-    if (insertError) throw insertError;
-
-    return new Response(
-      JSON.stringify({ message: 'Product image added successfully' }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    await pool.query(
+      'INSERT INTO product_images(product_id, url) VALUES($1, $2)',
+      [product_id, image_url]
     );
-  } catch (error: any) {
+
+
+    return Response.json({ message: 'Product image added successfully' }, { status: 200 });
+  } catch (error) {
     console.error('❌ Error adding product image:', error);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    return Response.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

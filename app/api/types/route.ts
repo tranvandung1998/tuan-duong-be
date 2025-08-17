@@ -1,53 +1,36 @@
-// app/api/types/route.ts
-import { supabase } from '@/lib/supabaseClient';
 import type { NextRequest } from 'next/server';
-
-export const runtime = 'nodejs';
+import pool from '@/lib/db';
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const categoryName = searchParams.get('category');
+    const category = searchParams.get('category');
+    let result;
 
-    let types;
-    if (categoryName) {
-      // Lấy category_id
-      const { data: category, error: catError } = await supabase
-        .from('categories')
-        .select('id')
-        .eq('name', categoryName)
-        .maybeSingle();
-
-      if (catError) throw catError;
-      if (!category) {
+    if (category) {
+      const categoryRes = await pool.query(
+        'SELECT id FROM categories WHERE name = $1',
+        [category]
+      );
+      if (categoryRes.rowCount === 0) {
         return new Response(JSON.stringify({ error: 'Category not found' }), {
           status: 404,
           headers: { 'Content-Type': 'application/json' },
         });
       }
 
-      const { data: typesData, error: typeError } = await supabase
-        .from('types')
-        .select('*')
-        .eq('category_id', category.id);
-
-      if (typeError) throw typeError;
-      types = typesData;
+      const category_id = categoryRes.rows[0].id;
+      result = await pool.query('SELECT * FROM types WHERE category_id = $1', [category_id]);
     } else {
-      const { data: typesData, error: typeError } = await supabase
-        .from('types')
-        .select('*');
-
-      if (typeError) throw typeError;
-      types = typesData;
+      result = await pool.query('SELECT * FROM types');
     }
 
-    return new Response(JSON.stringify(types || []), {
+    return new Response(JSON.stringify(result.rows), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (error: any) {
-    console.error('GET /api/types error:', error.message, error.stack);
+    console.error('GET error:', error.message, error.stack);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
@@ -66,34 +49,22 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Kiểm tra category tồn tại
-    const { data: category, error: catError } = await supabase
-      .from('categories')
-      .select('id')
-      .eq('id', category_id)
-      .maybeSingle();
-
-    if (catError) throw catError;
-    if (!category) {
+    const catRes = await pool.query('SELECT id FROM categories WHERE id = $1', [category_id]);
+    if (catRes.rowCount === 0) {
       return new Response(JSON.stringify({ error: 'Category not found' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    // Thêm type
-    const { error: insertError } = await supabase
-      .from('types')
-      .insert([{ name, category_id }]);
-
-    if (insertError) throw insertError;
+    await pool.query('INSERT INTO types(name, category_id) VALUES($1, $2)', [name, category_id]);
 
     return new Response(JSON.stringify({ message: 'Type created' }), {
       status: 201,
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (error: any) {
-    console.error('POST /api/types error:', error.message, error.stack);
+    console.error('POST error:', error.message, error.stack);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
