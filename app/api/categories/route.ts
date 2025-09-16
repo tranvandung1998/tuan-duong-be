@@ -6,6 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
+
 // Xử lý preflight request
 export async function OPTIONS() {
   return new Response(null, { status: 204, headers: corsHeaders });
