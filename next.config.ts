@@ -1,6 +1,6 @@
 import pool from '@/lib/db';
 
-const allowedOrigins = ['http://localhost:3000', 'https://app-fe-tuan-duong.vercel.app/'];
+const allowedOrigins = ['http://localhost:5173', 'https://app-fe-tuan-duong.vercel.app/'];
 
 export async function OPTIONS() {
   return new Response(null, {
