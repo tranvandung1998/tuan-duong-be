@@ -15,6 +15,7 @@ export async function OPTIONS() {
 
 
 export async function POST(req: Request) {
+  
   try {
     const { product_name, detail, images } = await req.json();
 
