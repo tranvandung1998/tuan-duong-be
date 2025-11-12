@@ -15,41 +15,20 @@ function getSupabaseClient() {
   return createClient(supabaseUrl, supabaseKey);
 }
 
-// GET products
-export async function GET(req: Request) {
-  try {
-    const supabase = getSupabaseClient();
-
-    const { searchParams } = new URL(req.url);
-    const type = searchParams.get('type');
-
-    let result;
-    if (type) {
-      const typeRes = await pool.query('SELECT id FROM types WHERE name = $1', [type]);
-      if (typeRes.rowCount === 0) {
-        return NextResponse.json({ error: 'Type not found' }, { status: 404 });
-      }
-      const type_id = typeRes.rows[0].id;
-      result = await pool.query('SELECT * FROM products WHERE type_id = $1', [type_id]);
-    } else {
-      result = await pool.query('SELECT * FROM products');
-    }
-
-    return NextResponse.json(result.rows);
-  } catch (error: any) {
-    console.error('GET /products error:', error);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
-  }
-}
-
-// POST create product
+// POST create product (nhận FormData)
 export async function POST(req: Request) {
   try {
     const supabase = getSupabaseClient();
 
-    const { name, price, description, type_id, image_file_base64, image_filename } = await req.json();
+    const formData = await req.formData();
 
-    if (!name || !price || !type_id || !image_file_base64 || !image_filename) {
+    const name = formData.get('name')?.toString();
+    const price = formData.get('price')?.toString();
+    const description = formData.get('description')?.toString() || null;
+    const type_id = Number(formData.get('type_id'));
+    const imageFile = formData.get('image_file') as File | null;
+
+    if (!name || !price || !type_id || !imageFile) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
@@ -60,13 +39,15 @@ export async function POST(req: Request) {
     }
 
     // Upload ảnh lên Supabase Storage
-    const fileName = `${Date.now()}-${image_filename}`;
+    const fileName = `${Date.now()}-${imageFile.name}`;
+    const buffer = Buffer.from(await imageFile.arrayBuffer());
+
     const { error: uploadError } = await supabase.storage
       .from('product-images')
-      .upload(`products/${fileName}`, Buffer.from(image_file_base64, 'base64'), {
+      .upload(`products/${fileName}`, buffer, {
         cacheControl: '3600',
         upsert: false,
-        contentType: 'image/png',
+        contentType: imageFile.type,
       });
 
     if (uploadError) {
@@ -84,7 +65,7 @@ export async function POST(req: Request) {
     // Insert vào DB
     await pool.query(
       'INSERT INTO products(name, price, image_url, description, type_id) VALUES($1, $2, $3, $4, $5)',
-      [name, price, publicURL, description || null, type_id]
+      [name, price, publicURL, description, type_id]
     );
 
     return NextResponse.json({ message: 'Product created', image_url: publicURL }, { status: 201 });
