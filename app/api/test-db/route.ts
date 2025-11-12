@@ -6,6 +6,7 @@ export async function GET() {
     const res = await pool.query('SELECT NOW() as now');
     return NextResponse.json({ postgres: res.rows[0].now });
   } catch (err) {
+    
     console.error('Postgres connection error:', err);
     return NextResponse.json({ error: 'Postgres connection failed' }, { status: 500 });
   }
