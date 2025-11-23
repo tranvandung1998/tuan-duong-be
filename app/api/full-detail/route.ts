@@ -5,47 +5,61 @@ export const runtime = "nodejs";
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
+    const productId = searchParams.get("id");
     const productName = searchParams.get("name");
 
-    if (!productName) {
-      return new Response(JSON.stringify({ error: "Missing product name" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
+    let query = "SELECT * FROM products";
+    const params: any[] = [];
+
+    if (productId) {
+      query += " WHERE id = $1";
+      params.push(Number(productId));
+    } else if (productName) {
+      query += " WHERE name ILIKE $1";
+      params.push(`%${productName}%`);
     }
 
-    // Lấy sản phẩm
-    const prodRes = await pool.query("SELECT * FROM products WHERE name = $1", [
-      productName,
-    ]);
+    const prodRes = await pool.query(query, params);
 
-    if (prodRes.rowCount === 0) {
-      return new Response(JSON.stringify({ error: "Product not found" }), {
+    if (!prodRes.rows.length) {
+      return new Response(JSON.stringify({ error: "No products found" }), {
         status: 404,
         headers: { "Content-Type": "application/json" },
       });
     }
 
-    const product = prodRes.rows[0];
+    // Lấy chi tiết + images
+    const productsWithDetails = await Promise.all(
+      prodRes.rows.map(async (product) => {
+        const detailRes = await pool.query(
+          "SELECT description, images FROM product_details WHERE product_id = $1",
+          [product.id]
+        );
 
-    // Lấy chi tiết + images từ product_details
-    const detailRes = await pool.query(
-      "SELECT detail, images FROM product_details WHERE product_id = $1",
-      [product.id]
+        const details = detailRes.rows.map((row) => ({
+          description: row.description,
+          images: Array.isArray(row.images) ? row.images : [],
+        }));
+
+        // slide_image 10 slot
+        const slide_image: Record<string, string | null> = {};
+        const firstImages = details[0]?.images || [];
+        for (let i = 0; i < 10; i++) {
+          slide_image[`image${i + 1}`] = firstImages[i] || null;
+        }
+
+        return {
+          ...product,
+          details,
+          slide_image,
+        };
+      })
     );
 
-    const details = detailRes.rows.map((row) => ({
-      detail: row.detail,
-      images: row.images || [],
-    }));
-
-    return new Response(
-      JSON.stringify({ ...product, details }),
-      {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }
-    );
+    return new Response(JSON.stringify(productsWithDetails), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   } catch (error) {
     console.error("Error in GET /api/full-detail:", error);
     return new Response(JSON.stringify({ error: "Internal server error" }), {
