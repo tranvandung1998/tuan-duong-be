@@ -1,122 +1,115 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import pool from "@/lib/db";
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import pool from '@/lib/db';
+import { QueryResult } from 'pg';
 
-export const runtime = "nodejs";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
-
+// --- Supabase client ---
 function getSupabaseClient() {
   const supabaseUrl = process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
-  if (!supabaseUrl || !supabaseKey) throw new Error("Supabase env not defined");
+
+  if (!supabaseUrl || !supabaseKey) throw new Error('Supabase env not defined');
+
   return createClient(supabaseUrl, supabaseKey);
 }
 
-// --- OPTIONS ---
-export async function OPTIONS() {
-  return new Response(null, { status: 204, headers: corsHeaders });
+// Typed row interfaces
+interface ProductDetailRow {
+  id: number;
+  product_id: number;
+  description: string | null;
+  images: string[] | null;
 }
 
-// --- POST: tạo product detail + upload ảnh ---
+// ====================== POST /product-detail ======================
 export async function POST(req: Request) {
   try {
-    const { product_name, detail, images } = await req.json();
-
-    if (!product_name || !detail) {
-      return NextResponse.json({ error: "Missing product_name or detail" }, { status: 400 });
-    }
-
-    // Lấy product_id
-    const prodRes = await pool.query("SELECT id FROM products WHERE name=$1", [product_name]);
-    if (prodRes.rowCount === 0) return NextResponse.json({ error: "Product not found" }, { status: 404 });
-    const product_id = prodRes.rows[0].id;
-
     const supabase = getSupabaseClient();
-    const uploadedURLs: string[] = [];
 
-    // Upload images (tối đa 10 ảnh)
-    if (images && Array.isArray(images)) {
-      for (let i = 0; i < Math.min(images.length, 10); i++) {
-        const imgData = images[i]; // base64 string
-        const fileName = `product-details/${product_id}/${Date.now()}-${i}.png`;
-        const buffer = Buffer.from(imgData, "base64");
-
-        const { error } = await supabase.storage
-          .from("product-images")
-          .upload(fileName, buffer, {
-            cacheControl: "3600",
-            upsert: false,
-            contentType: "image/png",
-          });
-
-        if (error) return NextResponse.json({ error: "Upload failed" }, { status: 500 });
-
-        const { data: publicData } = supabase.storage.from("product-images").getPublicUrl(fileName);
-        uploadedURLs.push(publicData.publicUrl);
-      }
+    const contentType = req.headers.get('content-type') || '';
+    if (!contentType.includes('multipart/form-data')) {
+      return NextResponse.json({ error: 'Content-Type must be multipart/form-data' }, { status: 400 });
     }
 
-    // Map 10 ảnh
-    const slideImages = [];
-    for (let i = 0; i < 10; i++) slideImages.push(uploadedURLs[i] || null);
+    const formData = await req.formData();
+    const productIdRaw = formData.get('product_id')?.toString();
+    const description = formData.get('description')?.toString() || '';
+    const files = formData.getAll('images') as File[];
 
-    // Lưu vào product_details
-    await pool.query(
-      `INSERT INTO product_details
-       (product_id, description,image1,image2,image3,image4,image5,image6,image7,image8,image9,image10)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [product_id, detail, ...slideImages]
+    if (!productIdRaw) {
+      return NextResponse.json({ error: 'Missing product_id' }, { status: 400 });
+    }
+
+    const product_id = Number(productIdRaw);
+    if (isNaN(product_id)) {
+      return NextResponse.json({ error: 'Invalid product_id' }, { status: 400 });
+    }
+
+    if (!files.length) {
+      return NextResponse.json({ error: 'No images uploaded' }, { status: 400 });
+    }
+
+    // Upload tối đa 10 ảnh
+    const uploadedURLs: (string | null)[] = Array(10).fill(null);
+
+    for (let i = 0; i < Math.min(files.length, 10); i++) {
+      const file = files[i];
+      const fileName = `detail-${Date.now()}-${file.name}`;
+      const buffer = Buffer.from(await file.arrayBuffer());
+
+      const { error: uploadError } = await supabase.storage
+        .from('product-images')
+        .upload(`details/${fileName}`, buffer, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: file.type,
+        });
+
+      if (uploadError) {
+        console.error('Supabase upload error:', uploadError);
+        return NextResponse.json({ error: 'Image upload failed' }, { status: 500 });
+      }
+
+      const { data: publicData } = supabase.storage
+        .from('product-images')
+        .getPublicUrl(`details/${fileName}`);
+
+      uploadedURLs[i] = publicData?.publicUrl || null;
+    }
+
+    // Lưu vào product_detail
+    const res: QueryResult<ProductDetailRow> = await pool.query(
+      `INSERT INTO product_detail (product_id, description, images)
+       VALUES ($1, $2, $3) RETURNING *`,
+      [product_id, description, JSON.stringify(uploadedURLs)]
     );
 
-    return NextResponse.json({ message: "Product detail saved", slideImages }, { status: 201 });
-  } catch (err: any) {
-    console.error("POST /product-details error:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ message: 'Product detail created', data: res.rows[0] }, { status: 201 });
+  } catch (err) {
+    console.error('POST /product-detail error:', err);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
 
-// --- GET: lấy product detail + slide_image ---
-// --- GET: lấy product detail + slide_image ---
-export async function GET(req: NextRequest) {
+// ====================== GET /product-detail ======================
+export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const productName = searchParams.get("name");
+    const productIdRaw = searchParams.get('product_id');
+    const params: any[] = [];
+    let query = `SELECT * FROM product_detail`;
 
-    if (!productName) {
-      return NextResponse.json({ error: "Missing product name" }, { status: 400 });
+    if (productIdRaw) {
+      query += ` WHERE product_id = $1`;
+      params.push(Number(productIdRaw));
     }
 
-    // Lấy tất cả product có tên trùng
-    const prodRes = await pool.query("SELECT * FROM products WHERE name = $1", [productName]);
-    if (prodRes.rowCount === 0) {
-      return NextResponse.json({ data: [], message: "No products found" }, { status: 200 });
-    }
+    query += ` ORDER BY id DESC`;
 
-    const products = await Promise.all(prodRes.rows.map(async (product) => {
-      // Lấy images từ product_images
-      const imgRes = await pool.query(
-        "SELECT url FROM product_images WHERE product_id = $1 ORDER BY id ASC",
-        [product.id]
-      );
-      const allImages = imgRes.rows.map(r => r.url);
-
-      // Map ra slide_image 10 slot
-      const slide_image: Record<string, string | null> = {};
-      for (let i = 0; i < 10; i++) {
-        slide_image[`image${i + 1}`] = allImages[i] || null;
-      }
-
-      return { ...product, slide_image };
-    }));
-
-    return NextResponse.json({ data: products }, { status: 200 });
-  } catch (err: any) {
-    console.error("GET /api/product-details error:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    const res: QueryResult<ProductDetailRow> = await pool.query(query, params);
+    return NextResponse.json({ data: res.rows });
+  } catch (err) {
+    console.error('GET /product-detail error:', err);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
