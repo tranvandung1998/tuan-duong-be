@@ -11,10 +11,11 @@ function getSupabaseClient() {
   return createClient(supabaseUrl, supabaseKey);
 }
 
-// POST /api/products-full
+// ===== POST /api/products-full =====
 export async function POST(req: Request) {
   try {
     const supabase = getSupabaseClient();
+
     const contentType = req.headers.get("content-type") || "";
     if (!contentType.includes("multipart/form-data")) {
       return NextResponse.json(
@@ -25,18 +26,18 @@ export async function POST(req: Request) {
 
     const formData = await req.formData();
 
-    // ===== Product fields =====
+    // ----- Product fields -----
     const name = formData.get("name")?.toString();
     const price = Number(formData.get("price"));
     const type_id = Number(formData.get("type_id"));
     const description = formData.get("description")?.toString() || "";
     const productFiles = formData.getAll("product_images") as File[];
 
-    // ===== Product Detail fields =====
+    // ----- Product Detail fields -----
     const detailDesc = formData.get("detail_description")?.toString() || "";
     const detailFiles = formData.getAll("detail_images") as File[];
 
-    // ===== Validation =====
+    // ----- Validation -----
     if (!name || isNaN(price) || isNaN(type_id) || !productFiles.length) {
       return NextResponse.json({ error: "Missing product fields" }, { status: 400 });
     }
@@ -46,14 +47,14 @@ export async function POST(req: Request) {
 
     // Check type exists
     const typeRes = await pool.query("SELECT id FROM types WHERE id = $1", [type_id]);
-    if (typeRes.rowCount === 0) return NextResponse.json({ error: "Type not found" }, { status: 404 });
+    if (typeRes.rowCount === 0)
+      return NextResponse.json({ error: "Type not found" }, { status: 404 });
 
     // Check product name trùng
     const nameCheck = await pool.query("SELECT id FROM products_full WHERE name = $1", [name]);
-if ((nameCheck.rowCount ?? 0) > 0) {
-  return NextResponse.json({ error: "Product name exists" }, { status: 400 });
-}
-
+    if ((nameCheck.rowCount ?? 0) > 0) {
+      return NextResponse.json({ error: "Product name exists" }, { status: 400 });
+    }
 
     // ===== Upload images =====
     const uploadedProductURLs: string[] = [];
@@ -72,21 +73,32 @@ if ((nameCheck.rowCount ?? 0) > 0) {
           });
         if (error) throw new Error(`Upload ${file.name} failed`);
 
-        const { data } = supabase.storage.from("product-images").getPublicUrl(`${folder}/${fileName}`);
+        const { data } = supabase.storage
+          .from("product-images")
+          .getPublicUrl(`${folder}/${fileName}`);
         targetArr.push(data.publicUrl);
       }
     };
 
-    await uploadFiles(productFiles, "products", uploadedProductURLs);
-    await uploadFiles(detailFiles, "details", uploadedDetailURLs);
+    // Upload: 1 ảnh product + max 10 ảnh detail
+    await uploadFiles(productFiles.slice(0, 1), "products", uploadedProductURLs);
+    await uploadFiles(detailFiles.slice(0, 10), "details", uploadedDetailURLs);
 
     // ===== Insert into products_full =====
     const insertRes = await pool.query(
       `INSERT INTO products_full
        (name, price, description, type_id, product_images, detail_description, detail_images)
        VALUES($1,$2,$3,$4,$5,$6,$7)
-       RETURNING id, name, price, type_id`,
-      [name, price, description, type_id, uploadedProductURLs, detailDesc, uploadedDetailURLs]
+       RETURNING id, name, price, type_id, product_images, detail_description, detail_images`,
+      [
+        name,
+        price,
+        description,
+        type_id,
+        uploadedProductURLs[0], // chỉ 1 ảnh chính
+        detailDesc,
+        uploadedDetailURLs,      // mảng ảnh chi tiết
+      ]
     );
 
     return NextResponse.json(
@@ -99,7 +111,7 @@ if ((nameCheck.rowCount ?? 0) > 0) {
   }
 }
 
-// GET /api/products-full
+// ===== GET /api/products-full =====
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
