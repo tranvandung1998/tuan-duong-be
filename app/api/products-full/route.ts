@@ -85,21 +85,23 @@ export async function POST(req: Request) {
     await uploadFiles(detailFiles.slice(0, 10), "details", uploadedDetailURLs);
 
     // ===== Insert into products_full =====
-    const insertRes = await pool.query(
-      `INSERT INTO products_full
-       (name, price, description, type_id, product_images, detail_description, detail_images)
-       VALUES($1,$2,$3,$4,$5,$6,$7)
-       RETURNING id, name, price, type_id, product_images, detail_description, detail_images`,
-      [
-        name,
-        price,
-        description,
-        type_id,
-        uploadedProductURLs[0], // chỉ 1 ảnh chính
-        detailDesc,
-        uploadedDetailURLs,      // mảng ảnh chi tiết
-      ]
-    );
+const insertRes = await pool.query(
+  `INSERT INTO products_full
+   (name, price, description, type_id, product_images, detail_description, detail_images)
+   VALUES($1,$2,$3,$4,$5,$6,$7)
+   RETURNING id, name, price, type_id`,
+  [
+    name,
+    price,
+    description,
+    type_id,
+    uploadedProductURLs[0], // 1 ảnh chính -> text
+    detailDesc,
+    `{${uploadedDetailURLs.map(u => `"${u}"`).join(",")}}` // mảng ảnh chi tiết -> text[]
+  ]
+);
+
+
 
     return NextResponse.json(
       { message: "Product + Detail created", product: insertRes.rows[0] },
