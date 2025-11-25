@@ -49,9 +49,8 @@ export async function POST(req: Request) {
     // Check product name trùng
     const nameCheck = await pool.query("SELECT id FROM products WHERE name = $1", [name]);
     if ((nameCheck.rowCount as number) > 0) {
-  return NextResponse.json({ error: "Product name exists" }, { status: 400 });
-}
-
+      return NextResponse.json({ error: "Product name exists" }, { status: 400 });
+    }
 
     // ===== Upload images =====
     const uploadedProductURLs: string[] = [];
