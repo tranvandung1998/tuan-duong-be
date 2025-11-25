@@ -18,10 +18,7 @@ export async function POST(req: Request) {
 
     const contentType = req.headers.get("content-type") || "";
     if (!contentType.includes("multipart/form-data")) {
-      return NextResponse.json(
-        { error: "Content-Type must be multipart/form-data" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Content-Type must be multipart/form-data" }, { status: 400 });
     }
 
     const formData = await req.formData();
@@ -31,83 +28,80 @@ export async function POST(req: Request) {
     const price = Number(formData.get("price"));
     const type_id = Number(formData.get("type_id"));
     const description = formData.get("description")?.toString() || "";
-    const productFiles = formData.getAll("product_images") as File[];
+    const productFiles = formData.getAll("product_images");
 
     // ----- Product Detail fields -----
     const detailDesc = formData.get("detail_description")?.toString() || "";
-    const detailFiles = formData.getAll("detail_images") as File[];
+    const detailFiles = formData.getAll("detail_images");
 
     // ----- Validation -----
-    if (!name || isNaN(price) || isNaN(type_id) || !productFiles.length) {
+    if (!name || isNaN(price) || isNaN(type_id) || productFiles.length === 0) {
       return NextResponse.json({ error: "Missing product fields" }, { status: 400 });
     }
-    if (!detailDesc || !detailFiles.length) {
-      return NextResponse.json({ error: "Missing detail fields" }, { status: 400 });
+    if (!detailDesc) {
+      return NextResponse.json({ error: "Missing detail description" }, { status: 400 });
     }
 
     // Check type exists
-    const typeRes = await pool.query("SELECT id FROM types WHERE id = $1", [type_id]);
-    if (typeRes.rowCount === 0)
-      return NextResponse.json({ error: "Type not found" }, { status: 404 });
+    const typeRes = await pool.query("SELECT id FROM types WHERE id=$1", [type_id]);
+    if (!typeRes.rowCount || typeRes.rowCount === 0) return NextResponse.json({ error: "Type not found" }, { status: 404 });
 
-    // Check product name trùng
-    const nameCheck = await pool.query("SELECT id FROM products_full WHERE name = $1", [name]);
-    if ((nameCheck.rowCount ?? 0) > 0) {
-      return NextResponse.json({ error: "Product name exists" }, { status: 400 });
-    }
+    // Check product name
+    const nameCheck = await pool.query("SELECT id FROM products_full WHERE name=$1", [name]);
+    if (nameCheck.rowCount && nameCheck.rowCount > 0) return NextResponse.json({ error: "Product name exists" }, { status: 400 });
 
     // ===== Upload images =====
-    const uploadedProductURLs: string[] = [];
-    const uploadedDetailURLs: string[] = [];
+    const uploadedProductURLs: any[] = [];
+    const uploadedDetailURLs: any[] = [];
 
-    const uploadFiles = async (files: File[], folder: string, targetArr: string[]) => {
-      for (const file of files) {
+    const uploadFiles = async (files: string | any[], folder: string, targetArr: any[], limit: number) => {
+      for (let i = 0; i < Math.min(files.length, limit); i++) {
+        const file = files[i];
         const fileName = `${uuidv4()}-${file.name}`;
         const buffer = Buffer.from(await file.arrayBuffer());
-        const { error } = await supabase.storage
-          .from("product-images")
-          .upload(`${folder}/${fileName}`, buffer, {
-            cacheControl: "3600",
-            upsert: false,
-            contentType: file.type,
-          });
+        const { error } = await supabase.storage.from("product-images").upload(`${folder}/${fileName}`, buffer, {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: file.type,
+        });
         if (error) throw new Error(`Upload ${file.name} failed`);
 
-        const { data } = supabase.storage
-          .from("product-images")
-          .getPublicUrl(`${folder}/${fileName}`);
+        const { data } = supabase.storage.from("product-images").getPublicUrl(`${folder}/${fileName}`);
         targetArr.push(data.publicUrl);
       }
     };
 
-    // Upload: 1 ảnh product + max 10 ảnh detail
-    await uploadFiles(productFiles.slice(0, 1), "products", uploadedProductURLs);
-    await uploadFiles(detailFiles.slice(0, 10), "details", uploadedDetailURLs);
+    await uploadFiles(productFiles, "products", uploadedProductURLs, 1); // 1 ảnh product
+    await uploadFiles(detailFiles, "details", uploadedDetailURLs, 10);   // max 10 ảnh detail
 
-    // ===== Insert into products_full =====
-const insertRes = await pool.query(
-  `INSERT INTO products_full
-   (name, price, description, type_id, product_images, detail_description, detail_images)
-   VALUES($1,$2,$3,$4,$5,$6,$7)
-   RETURNING id, name, price, type_id`,
-  [
-    name,
-    price,
-    description,
-    type_id,
-    uploadedProductURLs[0], // 1 ảnh chính -> text
-    detailDesc,
-    `{${uploadedDetailURLs.map(u => `"${u}"`).join(",")}}` // mảng ảnh chi tiết -> text[]
-  ]
-);
+    // Fill detail array 10 phần tử
+    const detailArray = Array(10).fill(null);
+    uploadedDetailURLs.forEach((url, idx) => {
+      detailArray[idx] = url;
+    });
 
+    // Convert detailArray sang PostgreSQL text[] literal
+    const pgDetailArray = `{${detailArray.map(u => (u ? `"${u}"` : "NULL")).join(",")}}`;
 
-
-    return NextResponse.json(
-      { message: "Product + Detail created", product: insertRes.rows[0] },
-      { status: 201 }
+    // Insert
+    const insertRes = await pool.query(
+      `INSERT INTO products_full
+      (name, price, description, type_id, product_images, detail_description, detail_images)
+      VALUES($1,$2,$3,$4,$5,$6,$7)
+      RETURNING id, name, price, type_id, product_images, detail_description, detail_images`,
+      [
+        name,
+        price,
+        description,
+        type_id,
+        uploadedProductURLs[0] || null, // ảnh chính
+        detailDesc,
+        pgDetailArray
+      ]
     );
-  } catch (err: any) {
+
+    return NextResponse.json({ message: "Product + Detail created", product: insertRes.rows[0] }, { status: 201 });
+  } catch (err) {
     console.error("POST /products-full error:", err);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
@@ -118,7 +112,7 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const productIdRaw = searchParams.get("product_id");
-    const params: any[] = [];
+    const params = [];
     let query = "SELECT * FROM products_full";
 
     if (productIdRaw) {
@@ -129,9 +123,8 @@ export async function GET(req: Request) {
     query += " ORDER BY id DESC";
 
     const res = await pool.query(query, params);
-
     return NextResponse.json({ data: res.rows });
-  } catch (err: any) {
+  } catch (err) {
     console.error("GET /products-full error:", err);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
