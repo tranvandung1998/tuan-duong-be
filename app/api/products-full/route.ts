@@ -151,6 +151,6 @@ export async function GET(req: Request) {
 export const config = {
   api: {
     bodyParser: false, // bắt buộc khi dùng req.formData()
-    sizeLimit: "50mb", // tăng limit nếu FE upload file lớn
+    sizeLimit: "300mb", // tăng limit nếu FE upload file lớn
   },
 };
