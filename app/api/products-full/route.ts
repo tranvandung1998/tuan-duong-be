@@ -95,6 +95,7 @@ export async function POST(req: Request) {
 
     // ===== Insert to DB =====
 // INSERT into DB
+// ===== Insert to DB =====
 const insertRes = await pool.query(
   `INSERT INTO products_full
     (name, price, description, type_id,
@@ -109,10 +110,9 @@ const insertRes = await pool.query(
     type_id,
     uploadedProductURLs[0] || null,
     detailDesc,
-    uploadedDetailURLs, // text[]
+    `{${uploadedDetailURLs.map((url) => `"${url}"`).join(",")}}`, // convert JS array -> Postgres text[]
   ]
 );
-
 
     return NextResponse.json(
       { message: "Product + Detail created", product: insertRes.rows[0] },
