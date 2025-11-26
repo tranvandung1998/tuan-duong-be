@@ -40,13 +40,13 @@ export async function POST(req: Request) {
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const productName = searchParams.get("name"); // Lấy tên tìm kiếm từ query
-    const params: any[] = [];
-    let query = "SELECT * FROM products_full WHERE 1=1";
+    const nameRaw = searchParams.get("name"); // nhận tên
+    const params = [];
+    let query = "SELECT * FROM products_full";
 
-    if (productName) {
-      params.push(`%${productName}%`);
-      query += ` AND name ILIKE $${params.length}`; // ILIKE không phân biệt hoa thường
+    if (nameRaw) {
+      query += " WHERE name ILIKE $1"; // tìm kiếm theo tên (không phân biệt hoa thường)
+      params.push(`%${nameRaw}%`);
     }
 
     query += " ORDER BY id DESC";
