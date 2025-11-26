@@ -18,7 +18,10 @@ export async function POST(req: Request) {
 
     const contentType = req.headers.get("content-type") || "";
     if (!contentType.includes("multipart/form-data")) {
-      return NextResponse.json({ error: "Content-Type must be multipart/form-data" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Content-Type must be multipart/form-data" },
+        { status: 400 }
+      );
     }
 
     const formData = await req.formData();
@@ -44,26 +47,35 @@ export async function POST(req: Request) {
 
     // Check type exists
     const typeRes = await pool.query("SELECT id FROM types WHERE id=$1", [type_id]);
-    if (!typeRes.rowCount || typeRes.rowCount === 0) return NextResponse.json({ error: "Type not found" }, { status: 404 });
+    if (!typeRes.rowCount || typeRes.rowCount === 0)
+      return NextResponse.json({ error: "Type not found" }, { status: 404 });
 
     // Check product name
     const nameCheck = await pool.query("SELECT id FROM products_full WHERE name=$1", [name]);
-    if (nameCheck.rowCount && nameCheck.rowCount > 0) return NextResponse.json({ error: "Product name exists" }, { status: 400 });
+    if (nameCheck.rowCount && nameCheck.rowCount > 0)
+      return NextResponse.json({ error: "Product name exists" }, { status: 400 });
 
     // ===== Upload images =====
-    const uploadedProductURLs: any[] = [];
-    const uploadedDetailURLs: any[] = [];
+    const uploadedProductURLs: string[] = [];
+    const uploadedDetailURLs: string[] = [];
 
-    const uploadFiles = async (files: string | any[], folder: string, targetArr: any[], limit: number) => {
+    const uploadFiles = async (
+      files: any[],
+      folder: string,
+      targetArr: string[],
+      limit: number
+    ) => {
       for (let i = 0; i < Math.min(files.length, limit); i++) {
-        const file = files[i];
+        const file = files[i] as File;
         const fileName = `${uuidv4()}-${file.name}`;
         const buffer = Buffer.from(await file.arrayBuffer());
-        const { error } = await supabase.storage.from("product-images").upload(`${folder}/${fileName}`, buffer, {
-          cacheControl: "3600",
-          upsert: false,
-          contentType: file.type,
-        });
+        const { error } = await supabase.storage
+          .from("product-images")
+          .upload(`${folder}/${fileName}`, buffer, {
+            cacheControl: "3600",
+            upsert: false,
+            contentType: file.type,
+          });
         if (error) throw new Error(`Upload ${file.name} failed`);
 
         const { data } = supabase.storage.from("product-images").getPublicUrl(`${folder}/${fileName}`);
@@ -71,36 +83,40 @@ export async function POST(req: Request) {
       }
     };
 
-    await uploadFiles(productFiles, "products", uploadedProductURLs, 1); // 1 ảnh product
-    await uploadFiles(detailFiles, "details", uploadedDetailURLs, 10);   // max 10 ảnh detail
+    // 1 ảnh product, max 10 ảnh detail
+    await uploadFiles(productFiles, "products", uploadedProductURLs, 1);
+    await uploadFiles(detailFiles, "details", uploadedDetailURLs, 10);
 
-    // Fill detail array 10 phần tử
-    const detailArray = Array(10).fill(null);
+    // ===== Prepare detail URLs 10 cột =====
+    const detailURLs: (string | null)[] = Array(10).fill(null);
     uploadedDetailURLs.forEach((url, idx) => {
-      detailArray[idx] = url;
+      detailURLs[idx] = url;
     });
 
-    // Convert detailArray sang PostgreSQL text[] literal
-    const pgDetailArray = `{${detailArray.map(u => (u ? `"${u}"` : "NULL")).join(",")}}`;
-
-    // Insert
+    // ===== Insert to DB =====
     const insertRes = await pool.query(
       `INSERT INTO products_full
-      (name, price, description, type_id, product_images, detail_description, detail_images)
-      VALUES($1,$2,$3,$4,$5,$6,$7)
-      RETURNING id, name, price, type_id, product_images, detail_description, detail_images`,
+      (name, price, description, type_id,
+       product_images, detail_description,
+       url1, url2, url3, url4, url5, url6, url7, url8, url9, url10)
+      VALUES($1,$2,$3,$4,$5,$6,
+             $7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+      RETURNING *`,
       [
         name,
         price,
         description,
         type_id,
-        uploadedProductURLs[0] || null, // ảnh chính
+        uploadedProductURLs[0] || null,
         detailDesc,
-        pgDetailArray
+        ...detailURLs,
       ]
     );
 
-    return NextResponse.json({ message: "Product + Detail created", product: insertRes.rows[0] }, { status: 201 });
+    return NextResponse.json(
+      { message: "Product + Detail created", product: insertRes.rows[0] },
+      { status: 201 }
+    );
   } catch (err) {
     console.error("POST /products-full error:", err);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
@@ -112,7 +128,7 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const productIdRaw = searchParams.get("product_id");
-    const params = [];
+    const params: any[] = [];
     let query = "SELECT * FROM products_full";
 
     if (productIdRaw) {
@@ -129,3 +145,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
+
+// ===== Next.js App Router config =====
+export const config = {
+  api: {
+    bodyParser: false, // bắt buộc khi dùng req.formData()
+    sizeLimit: "50mb", // tăng limit nếu FE upload file lớn
+  },
+};
