@@ -94,24 +94,25 @@ export async function POST(req: Request) {
     });
 
     // ===== Insert to DB =====
-    const insertRes = await pool.query(
-      `INSERT INTO products_full
-      (name, price, description, type_id,
-       product_images, detail_description,
-       url1, url2, url3, url4, url5, url6, url7, url8, url9, url10)
-      VALUES($1,$2,$3,$4,$5,$6,
-             $7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
-      RETURNING *`,
-      [
-        name,
-        price,
-        description,
-        type_id,
-        uploadedProductURLs[0] || null,
-        detailDesc,
-        ...detailURLs,
-      ]
-    );
+// INSERT into DB
+const insertRes = await pool.query(
+  `INSERT INTO products_full
+    (name, price, description, type_id,
+     product_images, detail_description,
+     detail_images)
+   VALUES($1,$2,$3,$4,$5,$6,$7)
+   RETURNING *`,
+  [
+    name,
+    price,
+    description,
+    type_id,
+    uploadedProductURLs[0] || null,
+    detailDesc,
+    uploadedDetailURLs, // text[]
+  ]
+);
+
 
     return NextResponse.json(
       { message: "Product + Detail created", product: insertRes.rows[0] },
